@@ -163,8 +163,9 @@ def iod_eval(eval_dir, env_name, evaluator, video_evaluator, num_skills, skill_t
             else:
                 remainder = 0
             rollouts = evaluator.generate_rollouts(generated_goal=generated_goal, z_s_onehot=z)
-
-            grip_coords = rollouts['o'][:, :, 0:2]
+            ############################
+            grip_coords = rollouts['o'][:, :, 0:3] # 3D, 0:2->0:3
+            ############################
             if 'Kitchen' in env_name:
                 target_coords = [23, 24, 25]
             else:
@@ -191,24 +192,36 @@ def iod_eval(eval_dir, env_name, evaluator, video_evaluator, num_skills, skill_t
 
         for label, trajs in [(f'EvalOp__TrajPlotWithCFrom{cur_type}', achs), (f'EvalOp__GripPlotWithCFrom{cur_type}', grips),
                              (f'EvalOp__XzPlotWithCFrom{cur_type}', xzs), (f'EvalOp__YzPlotWithCFrom{cur_type}', yzs)]:
-            with FigManager(label, epoch, eval_dir) as fm:
-                if 'Fetch' in env_name:
-                    plot_axis = [0, 2, 0, 2]
-                elif env_name == 'Maze':
-                    plot_axis = [-2, 2, -2, 2]
-                elif 'Kitchen' in env_name:
-                    plot_axis = [-3, 3, -3, 3]
-                else:
-                    plot_axis = None
-                plot_trajectories(
-                    trajs, cur_colors, plot_axis=plot_axis, ax=fm.ax
-                )
+            
+            ##########################################
+            if 'Fetch' in env_name and label=='EvalOp__GripPlotWithCFromRandom':
+                with FigManager(label, epoch, eval_dir, projection='3d') as fm:
+                    plot_axis = [0., 1.5, 0., 1.5, 0., 0.8]
+                    plot_trajectories(
+                        trajs, cur_colors, plot_axis=plot_axis, ax=fm.ax, target='eef'
+                    )
+            else:
+                with FigManager(label, epoch, eval_dir) as fm:
+                    if 'Fetch' in env_name and label!='EvalOp__GripPlotWithCFromRandom':
+                        plot_axis = [0.5, 2.0, 0., 1.5]
+                    elif env_name == 'Maze':
+                        plot_axis = [-2, 2, -2, 2]
+                    elif 'Kitchen' in env_name:
+                        plot_axis = [-3, 3, -3, 3]
+                    # else:
+                    #     plot_axis = None
+                    plot_trajectories(
+                        trajs, cur_colors, plot_axis=plot_axis, ax=fm.ax, target='obj'
+                    )
+            ##########################################
 
         if cur_type == 'Random':
             coords = np.concatenate(xyzs, axis=0)
-            coords = coords * 10
-            uniq_coords = np.unique(np.floor(coords), axis=0)
-            uniq_xy_coords = np.unique(np.floor(coords[:, :2]), axis=0)
+            # coords = coords * 10
+            ############################ state coverage : 0.01 x 0.01 bin 
+            uniq_coords = np.unique(np.round(coords, decimals=2), axis=0)
+            uniq_xy_coords = np.unique(np.round(coords[:, :2], decimals=2), axis=0)
+            ############################
             logger.record_tabular('Fetch/NumTrajs', len(xyzs))
             logger.record_tabular('Fetch/AvgTrajLen', len(coords) / len(xyzs) - 1)
             logger.record_tabular('Fetch/NumCoords', len(coords))
@@ -493,12 +506,15 @@ def launch(
             max_episode_steps = max_path_length
             env = TimeLimit(env, max_episode_steps=max_episode_steps)
         else:
-            env = gym.make(env_name)
-            if 'max_path_length' in params:
-                env = env.env
-                from gym.wrappers.time_limit import TimeLimit
-                max_episode_steps = params['max_path_length']
-                env = TimeLimit(env, max_episode_steps=max_episode_steps)
+            # env = gym.make(env_name)
+            # if 'max_path_length' in params:
+            #     env = env.env
+            #     from gym.wrappers.time_limit import TimeLimit
+            #     max_episode_steps = params['max_path_length']
+            #     env = TimeLimit(env, max_episode_steps=max_episode_steps)
+            from envs.mujoco.fetch_v1 import FetchEnv
+            max_episode_steps = max_path_length
+            env = FetchEnv(env_name, max_episode_steps=max_episode_steps)
 
         return env
 
@@ -555,24 +571,24 @@ def launch(
 @click.command()
 @click.option('--run_group', type=str, default='EXP')
 @click.option('--env_name', type=click.Choice(['FetchPush-v1', 'FetchSlide-v1', 'FetchPickAndPlace-v1', 'Maze', 'Kitchen']))
-@click.option('--n_epochs', type=int, default=50, help='the number of training epochs to run')
-@click.option('--train_start_epoch', type=int, default=0)
+@click.option('--n_epochs', type=int, default=40000, help='the number of training epochs to run')
+@click.option('--train_start_epoch', type=int, default=4000)
 @click.option('--num_cpu', type=int, default=1, help='the number of CPU cores to use (using MPI)')
 @click.option('--seed', type=int, default=0, help='the random seed used to seed both the environment and the training code')
 @click.option('--policy_save_interval', type=int, default=1, help='the interval with which policy pickles are saved. If set to 0, only the best and latest policy will be pickled.')
-@click.option('--n_cycles', type=int, default=50, help='n_cycles')
+@click.option('--n_cycles', type=int, default=1, help='n_cycles')
 @click.option('--replay_strategy', type=click.Choice(['future', 'final', 'none']), default='future', help='replay strategy to be used.')
 @click.option('--clip_return', type=int, default=0, help='whether or not returns should be clipped')
 @click.option('--binding', type=click.Choice(['none', 'core']), default='core', help='configure mpi using bind-to none or core.')
 @click.option('--logging', type=bool, default=False, help='whether or not logging')
-@click.option('--num_skills', type=int, default=5)
+@click.option('--num_skills', type=int, default=2)
 @click.option('--version', type=int, default=0, help='version')
 @click.option('--note', type=str, default=None, help='unique notes')
 
 @click.option('--skill_type', type=str, default='discrete')
-@click.option('--plot_freq', type=int, default=1)
-@click.option('--plot_repeats', type=int, default=1)
-@click.option('--n_random_trajectories', type=int, default=200)
+@click.option('--plot_freq', type=int, default=2000)
+@click.option('--plot_repeats', type=int, default=4)
+@click.option('--n_random_trajectories', type=int, default=1000)
 @click.option('--sk_r_scale', type=float, default=None)
 @click.option('--et_r_scale', type=float, default=None)
 @click.option('--sk_clip', type=int, default=1)
@@ -580,10 +596,10 @@ def launch(
 @click.option('--done_ground', type=int, default=0)
 @click.option('--max_path_length', type=int, default=50)
 @click.option('--hidden', type=int, default=256)
-@click.option('--layers', type=int, default=3)
+@click.option('--layers', type=int, default=2)
 @click.option('--rollout_batch_size', type=int, default=2)
-@click.option('--n_batches', type=int, default=40)
-@click.option('--polyak', type=float, default=0.95)
+@click.option('--n_batches', type=int, default=10)
+@click.option('--polyak', type=float, default=0.995)
 @click.option('--spectral_normalization', type=int, default=0)
 @click.option('--dual_reg', type=int, default=0)
 @click.option('--dual_init_lambda', type=float, default=1)
