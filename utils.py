@@ -8,11 +8,19 @@ from moviepy import editor as mpy
 
 
 class FigManager:
-    def __init__(self, label, epoch, eval_dir):
+    def __init__(self, label, epoch, eval_dir, subplot_spec=None, projection=None):
         self.label = label
         self.epoch = epoch
         self.fig = figure.Figure()
-        self.ax = self.fig.add_subplot()
+        ######################
+        if subplot_spec is not None:
+            self.ax = self.fig.subplots(*subplot_spec).flatten()
+        else:
+            if projection == '3d':
+                self.ax = self.fig.add_subplot(111, projection='3d')
+            else:
+                self.ax = self.fig.add_subplot()
+        ######################
         self.eval_dir = eval_dir
 
     def __enter__(self):
@@ -103,30 +111,65 @@ def setup_evaluation(num_eval_options, num_eval_trajectories_per_option, num_ski
 
     return eval_options, eval_option_colors
 
+##############################
+def plot_trajectory(trajectory, color, ax, target):
+    if target == 'eef':
+        ax.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2], color=color, linewidth=0.7)
+    elif target == 'obj':
+        ############################
+        # print("Trajectory :", trajectory)
+        ############################
+        ax.plot(trajectory[:,0], trajectory[:, 1], color=color, linewidth=0.7)
+    else:
+        assert False
 
-def plot_trajectory(trajectory, color, ax):
-    ax.plot(trajectory[:, 0], trajectory[:, 1], color=color, linewidth=0.7)
 
-
-def plot_trajectories(trajectories, colors, plot_axis, ax):
+def plot_trajectories(trajectories, colors, plot_axis, ax, target):
     """Plot trajectories onto given ax."""
     square_axis_limit = 0.0
-
     for trajectory, color in zip(trajectories, colors):
         trajectory = np.array(trajectory)
-        plot_trajectory(trajectory, color, ax)
+        plot_trajectory(trajectory, color, ax, target)
         square_axis_limit = max(square_axis_limit, np.max(np.abs(trajectory[:, :2])))
     square_axis_limit = square_axis_limit * 1.2
+
     if plot_axis == 'free':
         return
+    
     if plot_axis is None:
         plot_axis = [-square_axis_limit, square_axis_limit, -square_axis_limit, square_axis_limit]
+    
     if plot_axis is not None:
-        ax.axis(plot_axis)
-        ax.set_aspect('equal')
+        from matplotlib.ticker import MultipleLocator
+        if target == 'eef':
+            ax.set_xlim(plot_axis[:2])
+            ax.set_ylim(plot_axis[2:4])
+            ax.set_zlim(plot_axis[4:])
+            x_major_locator = MultipleLocator(0.5)  # Set interval for x-axis ticks (e.g., 0.5)
+            y_major_locator = MultipleLocator(0.5)  # Set interval for y-axis ticks (e.g., 0.5)
+            z_major_locator = MultipleLocator(0.2)  # Set interval for z-axis ticks (e.g., 0.2)
+            ax.xaxis.set_major_locator(x_major_locator)
+            ax.yaxis.set_major_locator(y_major_locator)
+            ax.zaxis.set_major_locator(z_major_locator)
+        elif target == 'obj':
+            ax.set_xlim(plot_axis[:2])
+            ax.set_ylim(plot_axis[2:])
+            x_major_locator = MultipleLocator(0.5)  # Set interval for x-axis ticks (e.g., 0.5)
+            y_major_locator = MultipleLocator(0.5)  # Set interval for y-axis ticks (e.g., 0.5)
+            ax.xaxis.set_major_locator(x_major_locator)
+            ax.yaxis.set_major_locator(y_major_locator)
+        else:
+            assert False
+        # ax.set_aspect('equal')
     else:
-        ax.axis('scaled')
+            ax.axis('scaled')
 
+    # if plot_axis is not None:
+    #     ax.axis(plot_axis)
+    #     ax.set_aspect('equal')
+    # else:
+    #     ax.axis('scaled')
+##############################
 
 def draw_2d_gaussians(means, stddevs, colors, ax, fill=False, alpha=0.8, use_adaptive_axis=False, draw_unit_gaussian=True, plot_axis=None):
     means = np.clip(means, -1000, 1000)
